@@ -41,7 +41,7 @@ import com.yahoo.ycsb.Utils;
  */
 public class ZipfianGenerator extends IntegerGenerator
 {     
-	public static final double ZIPFIAN_CONSTANT=0.99;
+	public static final double ZIPFIAN_CONSTANT=2.0;
 
 	/**
 	 * Number of items.
@@ -253,6 +253,7 @@ public class ZipfianGenerator extends IntegerGenerator
 					//we have added more items. can compute zetan incrementally, which is cheaper
 					zetan=zeta(countforzeta,itemcount,theta,zetan);
 					eta=(1-Math.pow(2.0/items,1-theta))/(1-zeta2theta/zetan);
+                    countforzeta = itemcount;
 				}
 				else if ( (itemcount<countforzeta) && (allowitemcountdecrease) )
 				{

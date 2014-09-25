@@ -16,13 +16,8 @@
 
 package com.yahoo.ycsb.db;
 
-import java.io.FileInputStream;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Properties;
-import java.util.Set;
-import java.util.Vector;
 import java.io.File;
 
 import org.apache.log4j.Level;
@@ -119,13 +114,29 @@ public class DynamoDBClient extends DB {
     }
 
     @Override
-    public int read(String table, String key, Set<String> fields,
-            HashMap<String, ByteIterator> result) {
+    public int readOne(String table, String key, String field, Map<String,ByteIterator> result) {
+
+        GetItemRequest req = new GetItemRequest(table, createPrimaryKey(key));
+        req.setAttributesToGet(Collections.singleton(field));
+        req.setConsistentRead(consistentRead);
+
+        return read(table, key, result, req);
+    }
+
+    @Override
+    public int readAll(String table, String key, Map<String,ByteIterator> result) {
+
+        GetItemRequest req = new GetItemRequest(table, createPrimaryKey(key));
+        req.setAttributesToGet(null);
+        req.setConsistentRead(consistentRead);
+
+        return read(table, key, result, req);
+    }
+
+    public int read(String table, String key, Map<String, ByteIterator> result,
+                    GetItemRequest req) {
 
         logger.debug("readkey: " + key + " from table: " + table);
-        GetItemRequest req = new GetItemRequest(table, createPrimaryKey(key));
-        req.setAttributesToGet(fields);
-        req.setConsistentRead(consistentRead);
         GetItemResult res = null;
 
         try {
@@ -147,16 +158,37 @@ public class DynamoDBClient extends DB {
     }
 
     @Override
-    public int scan(String table, String startkey, int recordcount,
-        Set<String> fields, Vector<HashMap<String, ByteIterator>> result) {
-        logger.debug("scan " + recordcount + " records from key: " + startkey + " on table: " + table);
-        /*
-         * on DynamoDB's scan, startkey is *exclusive* so we need to
-         * getItem(startKey) and then use scan for the res
-         */
-        GetItemRequest greq = new GetItemRequest(table, createPrimaryKey(startkey));
-        greq.setAttributesToGet(fields);
+    public int scanOne(String table, String startkey, int recordcount, String field,
+                       List<Map<String, ByteIterator>> result) {
 
+        GetItemRequest greq = new GetItemRequest(table, createPrimaryKey(startkey));
+        greq.setAttributesToGet(Collections.singleton(field));
+
+        ScanRequest req = new ScanRequest(table);
+        req.setAttributesToGet(Collections.singleton(field));
+
+        return scan(table, startkey, recordcount, result, greq, req);
+    }
+
+    @Override
+    public int scanAll(String table, String startkey, int recordcount, List<Map<String, ByteIterator>> result) {
+
+        GetItemRequest greq = new GetItemRequest(table, createPrimaryKey(startkey));
+        greq.setAttributesToGet(null);
+
+        ScanRequest req = new ScanRequest(table);
+        req.setAttributesToGet(null);
+
+        return scan(table, startkey, recordcount, result, greq, req);
+    }
+
+    /*
+     * on DynamoDB's scan, startkey is *exclusive* so we need to
+     * getItem(startKey) and then use scan for the res
+     */
+    public int scan(String table, String startkey, int recordcount, List<Map<String, ByteIterator>> result,
+                    GetItemRequest greq, ScanRequest req) {
+        logger.debug("scan " + recordcount + " records from key: " + startkey + " on table: " + table);
         GetItemResult gres = null;
 
         try {
@@ -176,8 +208,6 @@ public class DynamoDBClient extends DB {
         int count = 1; // startKey is done, rest to go.
 
         Key startKey = createPrimaryKey(startkey);
-        ScanRequest req = new ScanRequest(table);
-        req.setAttributesToGet(fields);
         while (count < recordcount) {
             req.setExclusiveStartKey(startKey);
             req.setLimit(recordcount - count);
@@ -206,16 +236,31 @@ public class DynamoDBClient extends DB {
     }
 
     @Override
-    public int update(String table, String key, HashMap<String, ByteIterator> values) {
-        logger.debug("updatekey: " + key + " from table: " + table);
+    public int updateOne(String table, String key, String field, ByteIterator value) {
 
-        Map<String, AttributeValueUpdate> attributes = new HashMap<String, AttributeValueUpdate>(
-                values.size());
+        Map<String, AttributeValueUpdate> attributes = new HashMap<String, AttributeValueUpdate>(1);
+        AttributeValue v = new AttributeValue(value.toString());
+        attributes.put(field, new AttributeValueUpdate()
+                  .withValue(v).withAction("PUT"));
+
+        return update(table, key, attributes);
+    }
+
+    @Override
+    public int updateAll(String table, String key, Map<String,ByteIterator> values) {
+
+        Map<String, AttributeValueUpdate> attributes = new HashMap<String, AttributeValueUpdate>(values.size());
         for (Entry<String, ByteIterator> val : values.entrySet()) {
             AttributeValue v = new AttributeValue(val.getValue().toString());
             attributes.put(val.getKey(), new AttributeValueUpdate()
-                    .withValue(v).withAction("PUT"));
+                      .withValue(v).withAction("PUT"));
         }
+
+        return update(table, key, attributes);
+    }
+
+    public int update(String table, String key, Map<String, AttributeValueUpdate> attributes) {
+        logger.debug("updatekey: " + key + " from table: " + table);
 
         UpdateItemRequest req = new UpdateItemRequest(table, createPrimaryKey(key), attributes);
 
@@ -232,7 +277,7 @@ public class DynamoDBClient extends DB {
     }
 
     @Override
-    public int insert(String table, String key,HashMap<String, ByteIterator> values) {
+    public int insert(String table, String key, Map<String, ByteIterator> values) {
         logger.debug("insertkey: " + primaryKeyName + "-" + key + " from table: " + table);
         Map<String, AttributeValue> attributes = createAttributes(values);
         // adding primary key
@@ -271,7 +316,7 @@ public class DynamoDBClient extends DB {
     }
 
     private static Map<String, AttributeValue> createAttributes(
-            HashMap<String, ByteIterator> values) {
+            Map<String, ByteIterator> values) {
         Map<String, AttributeValue> attributes = new HashMap<String, AttributeValue>(
                 values.size() + 1); //leave space for the PrimaryKey
         for (Entry<String, ByteIterator> val : values.entrySet()) {
